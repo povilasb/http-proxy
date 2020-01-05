@@ -41,6 +41,7 @@ pub async fn handle_connection(mut stream: TcpStream) -> io::Result<()> {
             proxy::Session::OnConnectRequest(ref state) => {
                 let out_stream = TcpStream::connect(&state.path).await?;
                 println!("Connected: {:?}", out_stream);
+                // TODO(povilas): transition to connected state
             }
             _ => (),
         }
