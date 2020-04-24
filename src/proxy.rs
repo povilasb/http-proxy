@@ -2,9 +2,7 @@
 
 use httparse::Status;
 use unwrap::unwrap;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Data(pub Vec<u8>);
+use async_std::net::TcpStream;
 
 /// State machine for a single HTTP proxy session.
 ///
@@ -13,7 +11,7 @@ pub struct Data(pub Vec<u8>);
 /// - WaitingRequest.on_data() => [WaitingRequest, OnConnectRequest]
 /// - OnConnectRequest.on_connected() => ConnectTunnel
 ///
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Session {
     WaitingRequest(WaitingRequest),
     OnConnectRequest(OnConnectRequest),
@@ -27,9 +25,10 @@ impl Session {
         Session::WaitingRequest(WaitingRequest {})
     }
 
-    pub fn on_data(self, data: Data) -> Session {
+    pub fn on_data(self, data: &[u8]) -> Session {
         match self {
             Session::WaitingRequest(state) => state.on_data(data),
+            Session::ConnectTunnel(state) => Session::ConnectTunnel(state),
             _ => Session::Failed(Failed {}),
         }
     }
@@ -43,11 +42,11 @@ pub struct Failed;
 pub struct WaitingRequest;
 
 impl WaitingRequest {
-    pub fn on_data(self, data: Data) -> Session {
+    pub fn on_data(self, data: &[u8]) -> Session {
         let mut headers = [httparse::EMPTY_HEADER; 16];
         let mut req = httparse::Request::new(&mut headers);
         // TODO(povilas): transition to error state on error
-        match unwrap!(req.parse(&data.0)) {
+        match unwrap!(req.parse(data)) {
             Status::Complete(_bytes_parsed) => {
                 if let (Some(method), Some(path)) = (req.method, req.path) {
                     if method == "CONNECT" {
@@ -74,10 +73,13 @@ pub struct OnConnectRequest {
 }
 
 impl OnConnectRequest {
-    pub fn on_connected(self) -> ConnectTunnel {
-        ConnectTunnel {}
+    pub fn on_connected(self, conn: TcpStream) -> ConnectTunnel {
+        ConnectTunnel { conn }
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct ConnectTunnel;
+// TODO(povilas): make it generic over connection type
+#[derive(Debug)]
+pub struct ConnectTunnel {
+    pub conn: TcpStream,
+}

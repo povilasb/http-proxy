@@ -2,6 +2,7 @@
 
 use async_std::{io, task};
 use async_std::io::ReadExt;
+use async_std::io::prelude::WriteExt;
 use async_std::net::{SocketAddr, IpAddr, Ipv4Addr, TcpListener, TcpStream};
 use async_std::stream::StreamExt;
 
@@ -35,15 +36,26 @@ pub async fn handle_connection(mut stream: TcpStream) -> io::Result<()> {
             break;
         }
 
-        proxy_sess = proxy_sess.on_data(proxy::Data(buf[..bytes_read].to_vec()));
+        proxy_sess = proxy_sess.on_data(&buf[..bytes_read]);
         println!("{:?}", proxy_sess);
-        match proxy_sess {
-            proxy::Session::OnConnectRequest(ref state) => {
-                let out_stream = TcpStream::connect(&state.path).await?;
-                println!("Connected: {:?}", out_stream);
-                // TODO(povilas): transition to connected state
+        proxy_sess = match proxy_sess {
+            proxy::Session::OnConnectRequest(state) => {
+                let mut out_stream = TcpStream::connect(&state.path).await?;
+                // TODO(povilas): get this from ConnectTunnel state.
+                stream.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await?;
+                proxy::Session::ConnectTunnel(state.on_connected(out_stream))
             }
-            _ => (),
+            proxy::Session::ConnectTunnel(mut state) => {
+                state.conn.write_all(&buf[..bytes_read]).await?;
+                let bytes_read = state.conn.read(&mut buf).await?;
+                stream.write_all(&buf[..bytes_read]).await?;
+                proxy::Session::ConnectTunnel(state)
+            }
+            proxy::Session::Failed(_state) => {
+                println!("State machine failed");
+                return Ok(());
+            }
+            proxy_sess => proxy_sess,
         }
     }
 
