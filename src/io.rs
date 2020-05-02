@@ -53,10 +53,9 @@ impl ProxyData {
 }
 
 impl Future for ProxyData {
-    type Output = ();
+    type Output = io::Result<()>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        println!("proxy_data.poll()");
         let mut buff = [0u8; 65535];
 
         // stream1 --> stream2
@@ -66,32 +65,29 @@ impl Future for ProxyData {
 
             match fut.poll(cx) {
                 Poll::Pending => break,
-                Poll::Ready(Ok(bytes_read)) => {
-                    println!("stream1 bytes read: {}", bytes_read);
+                Poll::Ready(res) => {
+                    let bytes_read = res?;
                     if bytes_read == 0 {
-                        return Poll::Ready(());
+                        return Poll::Ready(Ok(()));
                     }
 
                     self.stream1_in_buff.push_back(buff[..bytes_read].to_vec())
                 },
-                Poll::Ready(Err(e)) => {
-                    // TODO(povilas): return error
-                    println!("Failed to read from stream2: {}", e);
-                    return Poll::Ready(());
-                }
             }
         }
 
         while let Some(buff) = self.stream1_in_buff.pop_front() {
             let mut fut = self.stream2.write(&buff);
             pin_mut!(fut);
-            // TODO(povilas): handle error
-            if let Poll::Ready(Ok(bytes_written)) = fut.poll(cx) {
-                if bytes_written < buff.len() {
-                    self.stream1_in_buff.push_front(buff[bytes_written..].to_vec());
+
+            match fut.poll(cx) {
+                Poll::Pending => break,
+                Poll::Ready(res) => {
+                    let bytes_written = res?;
+                    if bytes_written < buff.len() {
+                        self.stream1_in_buff.push_front(buff[bytes_written..].to_vec());
+                    }
                 }
-            } else {
-                break;
             }
         }
 
@@ -102,19 +98,14 @@ impl Future for ProxyData {
 
             match fut.poll(cx) {
                 Poll::Pending => break,
-                Poll::Ready(Ok(bytes_read)) => {
-                    println!("stream2 bytes read: {}", bytes_read);
+                Poll::Ready(res) => {
+                    let bytes_read = res?;
                     if bytes_read == 0 {
-                        return Poll::Ready(());
+                        return Poll::Ready(Ok(()));
                     }
 
                     self.stream2_in_buff.push_back(buff[..bytes_read].to_vec())
                 },
-                Poll::Ready(Err(e)) => {
-                    // TODO(povilas): return error
-                    println!("Failed to read from stream2: {}", e);
-                    return Poll::Ready(());
-                }
             }
         }
 
@@ -122,13 +113,14 @@ impl Future for ProxyData {
             let mut fut = self.stream1.write(&buff);
             pin_mut!(fut);
 
-            // TODO(povilas): handle error
-            if let Poll::Ready(Ok(bytes_written)) = fut.poll(cx) {
-                if bytes_written < buff.len() {
-                    self.stream2_in_buff.push_front(buff[bytes_written..].to_vec());
+            match fut.poll(cx) {
+                Poll::Pending => break,
+                Poll::Ready(res) => {
+                    let bytes_written = res?;
+                    if bytes_written < buff.len() {
+                        self.stream2_in_buff.push_front(buff[bytes_written..].to_vec());
+                    }
                 }
-            } else {
-                break;
             }
         }
 
