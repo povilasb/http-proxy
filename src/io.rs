@@ -1,22 +1,19 @@
 //! I/O related code.
 
-use std::rc::Rc;
-use std::cell::RefCell;
 use std::future::{Future};
 use std::pin::Pin;
 use std::task::{Poll, Context};
 use std::collections::VecDeque;
 
 use async_std::{io, task};
-use async_std::io::{ReadExt, Read};
+use async_std::io::ReadExt;
 use async_std::io::prelude::WriteExt;
 use async_std::net::{SocketAddr, IpAddr, Ipv4Addr, TcpListener, TcpStream};
 use async_std::stream::StreamExt;
 use httparse::Status;
-use unwrap::unwrap;
 use futures::pin_mut;
+use unwrap::unwrap;
 
-use crate::proxy;
 
 /// Listen for incoming connections on a given TCP port.
 /// Spawns an async task for each connection.
@@ -77,7 +74,7 @@ impl Future for ProxyData {
         }
 
         while let Some(buff) = self.stream1_in_buff.pop_front() {
-            let mut fut = self.stream2.write(&buff);
+            let fut = self.stream2.write(&buff);
             pin_mut!(fut);
 
             match fut.poll(cx) {
@@ -110,7 +107,7 @@ impl Future for ProxyData {
         }
 
         while let Some(buff) = self.stream2_in_buff.pop_front() {
-            let mut fut = self.stream1.write(&buff);
+            let fut = self.stream1.write(&buff);
             pin_mut!(fut);
 
             match fut.poll(cx) {
