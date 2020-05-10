@@ -13,6 +13,18 @@ use async_std::stream::StreamExt;
 use httparse::Status;
 use futures::pin_mut;
 use unwrap::unwrap;
+use err_derive::Error;
+
+
+#[derive(Debug, Error)]
+enum Error {
+    #[error(display = "I/O error")]
+    Io(#[source] io::Error),
+    #[error(display = "Unexpected HTTP request (expected {}, got {})", _0, _1)]
+    UnexpectedHttpRequest(String, String),
+    #[error(display="HTTP issue: {}", _0)]
+    Http(String),
+}
 
 
 /// Listen for incoming connections on a given TCP port.
@@ -103,19 +115,18 @@ impl Future for ProxyData {
     }
 }
 
-pub async fn handle_connection(mut client_conn: TcpStream) -> io::Result<()> {
+pub async fn handle_connection(mut client_conn: TcpStream) -> Result<(), Error> {
+    // TODO(povilas): use logging instead of printing
     println!("New incoming connection: {}", client_conn.peer_addr().unwrap());
 
     let mut buf = vec![0u8; 65535];
 
     let bytes_read = client_conn.read(&mut buf).await?;
     if bytes_read == 0 {
-        // TODO(povilas): return error instead with conn reset or smth
-        return Ok(());
+        return Err(Error::Io(io::ErrorKind::ConnectionReset.into()));
     }
 
-    // TODO(povilas): return error if not connect
-    let connect_to = parse_conn_request(&buf[..bytes_read]);
+    let connect_to = parse_conn_request(&buf[..bytes_read])?;
     println!("Connecting to: {}", connect_to);
 
     let target_conn = TcpStream::connect(connect_to).await?;
@@ -128,26 +139,26 @@ pub async fn handle_connection(mut client_conn: TcpStream) -> io::Result<()> {
     Ok(())
 }
 
-// TODO(povilas): return result
-fn parse_conn_request(data: &[u8]) -> String {
+fn parse_conn_request(data: &[u8]) -> Result<String, Error> {
     let mut headers = [httparse::EMPTY_HEADER; 16];
     let mut req = httparse::Request::new(&mut headers);
 
-    // TODO(povilas): return error
     match unwrap!(req.parse(data)) {
         Status::Complete(_bytes_parsed) => {
             if let (Some(method), Some(path)) = (req.method, req.path) {
                 if method == "CONNECT" {
-                    return path.to_string()
+                    Ok(path.to_string())
                 } else {
-                    panic!("unsupported method: {}", method);
+                    Err(Error::UnexpectedHttpRequest(
+                            "CONNECT".to_string(), method.to_string()))
                 }
             } else {
-                panic!("Couldn't parse method and path");
+                Err(Error::Http("Couldn't parse method and path".to_string()))
             }
         }
         Status::Partial => {
-            panic!("HTTP request was partially parsed - not yet supported!");
+            Err(Error::Http(
+                "HTTP request was partially parsed - not yet supported!".to_string()))
         }
     }
 }

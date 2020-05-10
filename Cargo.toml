@@ -9,6 +9,7 @@ httparse = "1.3.4"
 http = "0.2.0"
 unwrap = "1.2.1"
 futures = "0.3.4"
+err-derive = "0.2.4"
 
 [dependencies.async-std]
 version = "1.5.0"
