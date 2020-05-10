@@ -14,6 +14,7 @@ use httparse::Status;
 use futures::pin_mut;
 use unwrap::unwrap;
 use err_derive::Error;
+use log::info;
 
 
 #[derive(Debug, Error)]
@@ -34,7 +35,7 @@ pub async fn run_server(port: u16) -> io::Result<()> {
     let listener = TcpListener::bind(listen_addr).await?;
     let mut incoming = listener.incoming();
 
-    println!("Listening for connections on port {}", port);
+    info!("Listening for connections on port {}", port);
 
     while let Some(Ok(stream)) = incoming.next().await {
         let _ = task::spawn(handle_connection(stream));
@@ -116,8 +117,7 @@ impl Future for ProxyData {
 }
 
 pub async fn handle_connection(mut client_conn: TcpStream) -> Result<(), Error> {
-    // TODO(povilas): use logging instead of printing
-    println!("New incoming connection: {}", client_conn.peer_addr().unwrap());
+    info!("New incoming connection: {}", client_conn.peer_addr().unwrap());
 
     let mut buf = vec![0u8; 65535];
 
@@ -127,10 +127,10 @@ pub async fn handle_connection(mut client_conn: TcpStream) -> Result<(), Error> 
     }
 
     let connect_to = parse_conn_request(&buf[..bytes_read])?;
-    println!("Connecting to: {}", connect_to);
+    info!("Connecting to: {}", connect_to);
 
     let target_conn = TcpStream::connect(connect_to).await?;
-    println!("...connected");
+    info!("...connected");
 
     client_conn.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await?;
 

@@ -10,6 +10,8 @@ http = "0.2.0"
 unwrap = "1.2.1"
 futures = "0.3.4"
 err-derive = "0.2.4"
+log = "0.4.8"
+simple_logger = "1.6.0"
 
 [dependencies.async-std]
 version = "1.5.0"
