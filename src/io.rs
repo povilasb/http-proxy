@@ -49,78 +49,56 @@ impl ProxyData {
     }
 }
 
+/// Reduces duplicate code when forwarding data
+/// stream1 ---> stream2 and then stream2 ---> stream1.
+///
+/// Was meaning to write a function, but Rustc was not happy about split borrowing
+/// from `ProxyData`.
+macro_rules! forward_data {
+    ( $from:expr, $to:expr, $from_buff:expr, $cx:expr ) => {
+        let mut buff = [0u8; 65535];
+
+        loop {
+            let fut = $from.read(&mut buff);
+            pin_mut!(fut);
+
+            match fut.poll($cx) {
+                Poll::Pending => break,
+                Poll::Ready(res) => {
+                    let bytes_read = res?;
+                    if bytes_read == 0 {
+                        return Poll::Ready(Ok(()));
+                    }
+
+                    $from_buff.push_back(buff[..bytes_read].to_vec())
+                },
+            }
+        }
+
+        while let Some(buff) = $from_buff.pop_front() {
+            let fut = $to.write(&buff);
+            pin_mut!(fut);
+
+            match fut.poll($cx) {
+                Poll::Pending => break,
+                Poll::Ready(res) => {
+                    let bytes_written = res?;
+                    if bytes_written < buff.len() {
+                        $from_buff.push_front(buff[bytes_written..].to_vec());
+                    }
+                }
+            }
+        }
+
+    }
+}
+
 impl Future for ProxyData {
     type Output = io::Result<()>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        let mut buff = [0u8; 65535];
-
-        // stream1 --> stream2
-        loop {
-            let fut = self.stream1.read(&mut buff);
-            pin_mut!(fut);
-
-            match fut.poll(cx) {
-                Poll::Pending => break,
-                Poll::Ready(res) => {
-                    let bytes_read = res?;
-                    if bytes_read == 0 {
-                        return Poll::Ready(Ok(()));
-                    }
-
-                    self.stream1_in_buff.push_back(buff[..bytes_read].to_vec())
-                },
-            }
-        }
-
-        while let Some(buff) = self.stream1_in_buff.pop_front() {
-            let fut = self.stream2.write(&buff);
-            pin_mut!(fut);
-
-            match fut.poll(cx) {
-                Poll::Pending => break,
-                Poll::Ready(res) => {
-                    let bytes_written = res?;
-                    if bytes_written < buff.len() {
-                        self.stream1_in_buff.push_front(buff[bytes_written..].to_vec());
-                    }
-                }
-            }
-        }
-
-        // stream2 --> stream1
-        loop {
-            let fut = self.stream2.read(&mut buff);
-            pin_mut!(fut);
-
-            match fut.poll(cx) {
-                Poll::Pending => break,
-                Poll::Ready(res) => {
-                    let bytes_read = res?;
-                    if bytes_read == 0 {
-                        return Poll::Ready(Ok(()));
-                    }
-
-                    self.stream2_in_buff.push_back(buff[..bytes_read].to_vec())
-                },
-            }
-        }
-
-        while let Some(buff) = self.stream2_in_buff.pop_front() {
-            let fut = self.stream1.write(&buff);
-            pin_mut!(fut);
-
-            match fut.poll(cx) {
-                Poll::Pending => break,
-                Poll::Ready(res) => {
-                    let bytes_written = res?;
-                    if bytes_written < buff.len() {
-                        self.stream2_in_buff.push_front(buff[bytes_written..].to_vec());
-                    }
-                }
-            }
-        }
-
+        forward_data!(&mut self.stream1, &mut self.stream2, &mut self.stream1_in_buff, cx);
+        forward_data!(&mut self.stream2, &mut self.stream1, &mut self.stream2_in_buff, cx);
         Poll::Pending
     }
 }
