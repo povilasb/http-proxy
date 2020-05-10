@@ -11,7 +11,7 @@ use async_std::io::prelude::WriteExt;
 use async_std::net::{SocketAddr, IpAddr, Ipv4Addr, TcpListener, TcpStream};
 use async_std::stream::StreamExt;
 use httparse::Status;
-use futures::pin_mut;
+use futures::{TryFutureExt, pin_mut};
 use unwrap::unwrap;
 use err_derive::Error;
 use log::info;
@@ -38,7 +38,10 @@ pub async fn run_server(port: u16) -> io::Result<()> {
     info!("Listening for connections on port {}", port);
 
     while let Some(Ok(stream)) = incoming.next().await {
-        let _ = task::spawn(handle_connection(stream));
+        let _ = task::spawn(handle_connection(stream).map_err(|e| {
+            info!("Error handling connection: {}", e);
+            ()
+        }));
     }
 
     Ok(())
