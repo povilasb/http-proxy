@@ -137,7 +137,7 @@ pub async fn handle_connection(mut client_conn: TcpStream) -> Result<(), Error> 
 
     client_conn.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await?;
 
-    ProxyData::new(client_conn, target_conn).await;
+    ProxyData::new(client_conn, target_conn).await?;
 
     Ok(())
 }
